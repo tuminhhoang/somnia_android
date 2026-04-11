@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Somnia",
+    "slug": "somnia",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "somnia",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0B1120"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "health.somnia.app",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "Somnia uses your health data to track sleep patterns and provide personalized CBT-I coaching.",
+        "NSHealthUpdateUsageDescription": "Somnia writes bedtime reminders to your health data."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1120"
+      },
+      "package": "health.somnia.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "router": {
+        "origin": "https://app.somniasanitas.com"
+      }
+    }
+  }
+}

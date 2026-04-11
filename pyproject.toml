@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "somnia"
+version = "1.0.0"
+description = "Somnia — Proprietary Metric Engine for CBT-I Digital Therapeutics"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.24",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "pydantic>=2.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["somnia/tests"]
