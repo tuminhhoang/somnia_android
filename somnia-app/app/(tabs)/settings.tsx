@@ -2,8 +2,8 @@
  * Settings — Oura connection, profile, notifications, about.
  */
 
-import { ScrollView, View, Text, Pressable, StyleSheet, Alert } from "react-native";
-import { useState, useEffect } from "react";
+import { ScrollView, View, Text, Pressable, StyleSheet, Alert, Modal, FlatList, ActivityIndicator } from "react-native";
+import { useState, useEffect, useRef } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/constants";
 import {
@@ -13,6 +13,7 @@ import {
   isHealthConnectAvailable, requestHealthConnectPermissions,
   isHealthConnectConnected, disconnectHealthConnect,
 } from "@/services";
+import * as Wearable from "@/services/wearable";
 import { useAppStore } from "@/stores/useAppStore";
 
 export default function SettingsScreen() {
@@ -23,10 +24,44 @@ export default function SettingsScreen() {
   const healthAvailable = isAppleHealthAvailable();
   const hcAvailable = isHealthConnectAvailable();
 
+  // Wearable BLE state
+  const [bleScanning, setBleScanning] = useState(false);
+  const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [scannedDevices, setScannedDevices] = useState<Wearable.ScannedDevice[]>([]);
+  const [pendingDeviceType, setPendingDeviceType] = useState<Wearable.DeviceType>('bracelet');
+  const [connectedBracelet, setConnectedBracelet] = useState<string | null>(null);
+  const [connectedRing, setConnectedRing] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const subscriptions = useRef<any[]>([]);
+
   useEffect(() => {
     isOuraConnected().then(setOuraLinked);
     isAppleHealthConnected().then(setHealthLinked);
     isHealthConnectConnected().then(setHcLinked);
+
+    if (Wearable.isAvailable) {
+      const s1 = Wearable.onDeviceFound((device) => {
+        setScannedDevices((prev) => {
+          if (prev.some((d) => d.address === device.address)) return prev;
+          return [...prev, device];
+        });
+      });
+      const s2 = Wearable.onConnectionChanged((event) => {
+        if (event.status === 'connected') {
+          if (event.deviceType === 'bracelet') setConnectedBracelet(event.address ?? null);
+          else setConnectedRing(event.address ?? null);
+          setScanModalVisible(false);
+        } else if (event.status === 'disconnected') {
+          if (event.deviceType === 'bracelet') setConnectedBracelet(null);
+          else setConnectedRing(null);
+        }
+      });
+      subscriptions.current = [s1, s2];
+    }
+
+    return () => {
+      subscriptions.current.forEach((s) => s?.remove());
+    };
   }, []);
 
   async function handleOuraConnect() {
@@ -94,8 +129,192 @@ export default function SettingsScreen() {
     );
   }
 
+  async function openBraceletScan() {
+    setPendingDeviceType('bracelet');
+    setScannedDevices([]);
+    setScanModalVisible(true);
+    setBleScanning(true);
+    try {
+      await Wearable.startScan();
+    } catch (e: any) {
+      Alert.alert('Scan Error', e.message);
+      setScanModalVisible(false);
+    }
+    setTimeout(() => setBleScanning(false), 15000);
+  }
+
+  async function openRingScan() {
+    setPendingDeviceType('ring');
+    setScannedDevices([]);
+    setScanModalVisible(true);
+    setBleScanning(true);
+    try {
+      await Wearable.startScan();
+    } catch (e: any) {
+      Alert.alert('Scan Error', e.message);
+      setScanModalVisible(false);
+    }
+    setTimeout(() => setBleScanning(false), 15000);
+  }
+
+  async function closeScanModal() {
+    await Wearable.stopScan();
+    setScanModalVisible(false);
+    setBleScanning(false);
+  }
+
+  async function connectDevice(device: Wearable.ScannedDevice) {
+    await Wearable.stopScan();
+    setBleScanning(false);
+    try {
+      if (pendingDeviceType === 'bracelet') {
+        await Wearable.connectBracelet(device.address);
+      } else {
+        await Wearable.connectRing(device.address);
+      }
+    } catch (e: any) {
+      Alert.alert('Connection Error', e.message);
+      setScanModalVisible(false);
+    }
+  }
+
+  async function handleDisconnectBracelet() {
+    Alert.alert('Disconnect Bracelet?', '', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Disconnect', style: 'destructive', onPress: async () => {
+        await Wearable.disconnect();
+        setConnectedBracelet(null);
+      }},
+    ]);
+  }
+
+  async function handleDisconnectRing() {
+    Alert.alert('Disconnect Ring?', '', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Disconnect', style: 'destructive', onPress: async () => {
+        await Wearable.disconnect();
+        setConnectedRing(null);
+      }},
+    ]);
+  }
+
+  async function handleSyncAll() {
+    setSyncing(true);
+    try {
+      await Wearable.syncTime();
+      await Wearable.syncAllData();
+      Alert.alert('Sync Complete', 'Health data synced from your device.');
+    } catch (e: any) {
+      Alert.alert('Sync Error', e.message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+
+      {/* BLE Device Scan Modal */}
+      <Modal visible={scanModalVisible} animationType="slide" transparent onRequestClose={closeScanModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {pendingDeviceType === 'bracelet' ? 'Find Bracelet (2208A)' : 'Find Ring (X3)'}
+              </Text>
+              <Pressable onPress={closeScanModal}>
+                <Ionicons name="close" size={24} color={colors.text.primary} />
+              </Pressable>
+            </View>
+            {bleScanning && (
+              <View style={styles.scanningRow}>
+                <ActivityIndicator color={colors.accent.primary} />
+                <Text style={styles.scanningText}>Scanning for devices...</Text>
+              </View>
+            )}
+            {!bleScanning && scannedDevices.length === 0 && (
+              <Text style={styles.emptyText}>No devices found. Make sure your device is nearby and powered on.</Text>
+            )}
+            <FlatList
+              data={scannedDevices}
+              keyExtractor={(d) => d.address}
+              renderItem={({ item }) => (
+                <Pressable style={styles.deviceListRow} onPress={() => connectDevice(item)}>
+                  <Ionicons name="bluetooth" size={20} color={colors.accent.primary} />
+                  <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                    <Text style={styles.deviceName}>{item.name || 'Unknown Device'}</Text>
+                    <Text style={styles.deviceStatus}>{item.address} · {item.rssi} dBm</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+                </Pressable>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* JStyle BLE Devices — Android only */}
+      {Wearable.isAvailable && (
+        <>
+          <Text style={styles.sectionTitle}>Somnia Devices</Text>
+          <View style={styles.card}>
+            {/* 2208A Bracelet */}
+            <View style={styles.deviceRow}>
+              <View style={styles.deviceInfo}>
+                <Text style={styles.deviceName}>Health Bracelet (2208A)</Text>
+                <Text style={styles.deviceStatus}>
+                  {connectedBracelet ? `Connected · ${connectedBracelet}` : 'Not connected'}
+                </Text>
+              </View>
+              <View style={[styles.statusDot, { backgroundColor: connectedBracelet ? colors.zone.green : colors.text.muted }]} />
+            </View>
+            <Pressable
+              style={[styles.actionBtn, connectedBracelet && styles.actionBtnDanger]}
+              onPress={connectedBracelet ? handleDisconnectBracelet : openBraceletScan}
+            >
+              <Ionicons name={connectedBracelet ? 'unlink' : 'bluetooth'} size={16}
+                color={connectedBracelet ? colors.zone.red : colors.accent.primary} />
+              <Text style={[styles.actionText, connectedBracelet && styles.actionTextDanger]}>
+                {connectedBracelet ? 'Disconnect Bracelet' : 'Connect Bracelet'}
+              </Text>
+            </Pressable>
+
+            {/* X3 Ring */}
+            <View style={[styles.deviceRow, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+              <View style={styles.deviceInfo}>
+                <Text style={styles.deviceName}>Smart Ring (X3)</Text>
+                <Text style={styles.deviceStatus}>
+                  {connectedRing ? `Connected · ${connectedRing}` : 'Not connected'}
+                </Text>
+              </View>
+              <View style={[styles.statusDot, { backgroundColor: connectedRing ? colors.zone.green : colors.text.muted }]} />
+            </View>
+            <Pressable
+              style={[styles.actionBtn, connectedRing && styles.actionBtnDanger]}
+              onPress={connectedRing ? handleDisconnectRing : openRingScan}
+            >
+              <Ionicons name={connectedRing ? 'unlink' : 'bluetooth'} size={16}
+                color={connectedRing ? colors.zone.red : colors.accent.primary} />
+              <Text style={[styles.actionText, connectedRing && styles.actionTextDanger]}>
+                {connectedRing ? 'Disconnect Ring' : 'Connect Ring'}
+              </Text>
+            </Pressable>
+
+            {/* Sync button — shown when any device connected */}
+            {(connectedBracelet || connectedRing) && (
+              <Pressable style={styles.actionBtn} onPress={handleSyncAll} disabled={syncing}>
+                {syncing
+                  ? <ActivityIndicator size="small" color={colors.accent.primary} />
+                  : <Ionicons name="sync" size={16} color={colors.accent.primary} />}
+                <Text style={styles.actionText}>
+                  {syncing ? 'Syncing...' : 'Sync Health Data'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </>
+      )}
+
       {/* Wearable Connections */}
       <Text style={styles.sectionTitle}>Wearables</Text>
       <View style={styles.card}>
@@ -306,5 +525,51 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     fontSize: font.size.sm,
     marginRight: spacing.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: colors.bg.card,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.md,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    color: colors.text.primary,
+    fontSize: font.size.lg,
+    fontWeight: font.weight.semibold,
+  },
+  scanningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  scanningText: {
+    color: colors.text.secondary,
+    fontSize: font.size.sm,
+  },
+  emptyText: {
+    color: colors.text.muted,
+    fontSize: font.size.sm,
+    textAlign: 'center',
+    padding: spacing.lg,
+  },
+  deviceListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
 });
