@@ -86,7 +86,7 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.somnia"
+    namespace "health.somnia.app"
     defaultConfig {
         applicationId "com.somnia"
         minSdkVersion rootProject.ext.minSdkVersion
