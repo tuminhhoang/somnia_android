@@ -58,11 +58,11 @@ export function onDataReceived(callback: (data: WearableData) => void) {
   return emitter?.addListener('onDataReceived', callback);
 }
 
-export async function startScan(): Promise<void> {
+export async function startScan(deviceType: DeviceType = 'bracelet'): Promise<void> {
   if (Platform.OS !== 'android' || !SomniaWearable) return;
   const granted = await requestBluetoothPermissions();
   if (!granted) throw new Error('Bluetooth permissions denied');
-  return SomniaWearable.startScan();
+  return SomniaWearable.startScan(deviceType);
 }
 
 export async function stopScan(): Promise<void> {

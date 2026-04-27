@@ -5,14 +5,5 @@ __pycache__/
 dist/
 build/
 *.egg
-
-# SDK source files (not to be committed)
-*.zip
-sdk_extracted/
-
-# Node
-somnia-app/node_modules/
-somnia-app/package-lock.json
-
-# Duplicate app directory
-somnia-app/somnia-app/
+.DS_Store
+node_modules/

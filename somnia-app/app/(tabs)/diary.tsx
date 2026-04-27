@@ -1,7 +1,3 @@
-/**
- * Sleep Diary — nightly self-report + wearable data review.
- */
-
 import {
   ScrollView,
   View,
@@ -9,19 +5,46 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { SleepStageBar } from "@/components";
 import { colors, spacing, radius, font } from "@/constants";
+import { useAppStore } from "@/stores/useAppStore";
 
 const QUALITY_LABELS = ["Terrible", "Poor", "Fair", "Good", "Great"];
 const ALERT_LABELS = ["Very groggy", "Groggy", "OK", "Alert", "Very alert"];
 
+function fmtMin(min: number | null): string {
+  if (min === null) return "—";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ""}`.trim() : `${m}m`;
+}
+
 export default function DiaryScreen() {
+  const sleepSummary = useAppStore((s) => s.sleepSummary);
+  const wearableHealth = useAppStore((s) => s.wearableHealth);
+  const addDiaryEntry = useAppStore((s) => s.addDiaryEntry);
+
   const [quality, setQuality] = useState(3);
   const [alertness, setAlertness] = useState(3);
   const [notes, setNotes] = useState("");
+
+  function handleSave() {
+    addDiaryEntry({
+      id: Date.now().toString(),
+      date: new Date().toISOString().split("T")[0],
+      quality,
+      alertness,
+      notes,
+    });
+    setNotes("");
+    Alert.alert("Saved", "Diary entry recorded.");
+  }
+
+  const hasWearableData = !!(sleepSummary || wearableHealth.lastUpdated);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -37,17 +60,48 @@ export default function DiaryScreen() {
       {/* Wearable data summary */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Last Night (Wearable)</Text>
-        <View style={styles.statRow}>
-          <Stat label="Total Sleep" value="7h 12m" />
-          <Stat label="Time in Bed" value="8h 0m" />
-          <Stat label="Efficiency" value="90%" />
-        </View>
-        <View style={styles.statRow}>
-          <Stat label="Onset" value="12 min" />
-          <Stat label="Awakenings" value="2" />
-          <Stat label="Resting HR" value="54 bpm" />
-        </View>
-        <SleepStageBar deep={95} rem={82} light={145} awake={30} />
+
+        {hasWearableData ? (
+          <>
+            <View style={styles.statRow}>
+              <Stat
+                label="Total Sleep"
+                value={fmtMin(sleepSummary?.totalMinutes ?? null)}
+              />
+              <Stat
+                label="Time in Bed"
+                value={fmtMin(sleepSummary?.timeinBedMinutes ?? null)}
+              />
+              <Stat
+                label="Efficiency"
+                value={sleepSummary ? `${sleepSummary.efficiency}%` : "—"}
+              />
+            </View>
+            <View style={styles.statRow}>
+              <Stat label="Deep Sleep" value={fmtMin(sleepSummary?.deepMinutes ?? null)} />
+              <Stat label="Light Sleep" value={fmtMin(sleepSummary?.lightMinutes ?? null)} />
+              <Stat
+                label="Resting HR"
+                value={wearableHealth.heartRate !== null ? `${Math.round(wearableHealth.heartRate)} bpm` : "—"}
+              />
+            </View>
+            {sleepSummary && (
+              <SleepStageBar
+                deep={sleepSummary.deepMinutes}
+                rem={sleepSummary.remMinutes}
+                light={sleepSummary.lightMinutes}
+                awake={sleepSummary.awakeMinutes}
+              />
+            )}
+          </>
+        ) : (
+          <View style={styles.noDataRow}>
+            <Ionicons name="watch-outline" size={24} color={colors.text.muted} />
+            <Text style={styles.noDataText}>
+              No wearable data yet. Connect and sync your device in Settings.
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Self-report */}
@@ -101,7 +155,7 @@ export default function DiaryScreen() {
       </View>
 
       {/* Submit */}
-      <Pressable style={styles.submitBtn}>
+      <Pressable style={styles.submitBtn} onPress={handleSave}>
         <Ionicons name="checkmark" size={20} color="#FFFFFF" />
         <Text style={styles.submitText}>Save diary entry</Text>
       </Pressable>
@@ -157,6 +211,18 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     fontSize: font.size.xs,
     marginTop: 2,
+  },
+  noDataRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  noDataText: {
+    flex: 1,
+    color: colors.text.muted,
+    fontSize: font.size.sm,
+    lineHeight: 20,
   },
   label: {
     color: colors.text.secondary,

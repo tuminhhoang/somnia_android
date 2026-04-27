@@ -39,6 +39,15 @@ class WearableModule(private val reactContext: ReactApplicationContext) :
     private var currentDeviceType: String = ""
     private var isConnected = false
     private val writeQueue: Queue<ByteArray> = LinkedList()
+    // Name substring that must be present for a scanned device to be emitted.
+    // "2208" matches 2208A bracelets; "2301" matches X3/J2301 rings.
+    private var scanNameFilter: String = ""
+
+    private fun isTargetDevice(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        if (scanNameFilter.isEmpty()) return true
+        return name.lowercase().contains(scanNameFilter.lowercase())
+    }
 
     private fun getBluetoothAdapter(): BluetoothAdapter? {
         if (bluetoothAdapter == null) {
@@ -56,7 +65,12 @@ class WearableModule(private val reactContext: ReactApplicationContext) :
 
     @SuppressLint("MissingPermission")
     @ReactMethod
-    fun startScan(promise: Promise) {
+    fun startScan(deviceType: String, promise: Promise) {
+        scanNameFilter = when (deviceType) {
+            "bracelet" -> "2208"
+            "ring"     -> "2301"
+            else       -> ""
+        }
         val adapter = getBluetoothAdapter()
         if (adapter == null || !adapter.isEnabled) {
             promise.reject("BT_DISABLED", "Bluetooth is not enabled")
@@ -234,8 +248,9 @@ class WearableModule(private val reactContext: ReactApplicationContext) :
         object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val device = result.device
+                if (!isTargetDevice(device.name)) return
                 val params = Arguments.createMap().apply {
-                    putString("name", device.name ?: "Unknown")
+                    putString("name", device.name!!)
                     putString("address", device.address)
                     putInt("rssi", result.rssi)
                 }
@@ -246,8 +261,9 @@ class WearableModule(private val reactContext: ReactApplicationContext) :
 
     @Suppress("DEPRECATION")
     private val legacyScanCallback = BluetoothAdapter.LeScanCallback { device, rssi, _ ->
+        if (!isTargetDevice(device.name)) return@LeScanCallback
         val params = Arguments.createMap().apply {
-            putString("name", device.name ?: "Unknown")
+            putString("name", device.name!!)
             putString("address", device.address)
             putInt("rssi", rssi)
         }
